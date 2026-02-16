@@ -22,10 +22,9 @@ The same technique works with **any** documentation. Swap in your own docs after
 
 The workshop uses these MLH docs as the knowledge base:
 
-- [MLH Hackathon Organizer Guide](https://github.com/MLH/mlh-hackathon-organizer-guide)
-- [MLH Policies](https://github.com/MLH/mlh-policies/tree/main)
+- [MLH Hackathon Organizer Guide](https://github.com/MLH/mlh-hackathon-organizer-guide) (organizer guide chapters, timeline, sponsorship, judging, community values)
+- [MLH Policies](https://github.com/MLH/mlh-policies/tree/main) (code of conduct, community values)
 - [MLH Hack Days Organizer Guide](https://github.com/MLH/mlh-hack-days-organizer-guide)
-- [MLH Fellowship FAQ](https://mlh.link/fellowship-faq)
 
 ## What is RAG?
 

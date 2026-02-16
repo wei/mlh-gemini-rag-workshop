@@ -190,9 +190,9 @@ Normally you'd need to:
 
 ```python
 # That's it!
-client.file_search_stores.create()
-client.files.upload(...)
-response = client.generate_content(query, tools=[file_search_tool])
+client.file_search_stores.create(...)
+client.file_search_stores.upload_to_file_search_store(...)
+response = client.models.generate_content(query, tools=[file_search_tool])
 ```
 
 No separate services, no chunking code, no embedding management. 🎉

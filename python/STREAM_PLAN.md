@@ -521,9 +521,14 @@ load_dotenv()
 
 # MLH docs to index (raw GitHub URLs)
 MLH_DOCS = {
-    "hackathon-guide.md": "https://raw.githubusercontent.com/MLH/mlh-hackathon-organizer-guide/main/README.md",
-    "policies.md": "https://raw.githubusercontent.com/MLH/mlh-policies/main/README.md",
+    "hackathon-organizer-guide.md": "https://raw.githubusercontent.com/MLH/mlh-hackathon-organizer-guide/master/README.md",
+    "what-is-mlh.md": "https://raw.githubusercontent.com/MLH/mlh-hackathon-organizer-guide/master/overview/what-is-mlh.md",
+    "hackathon-timeline.md": "https://raw.githubusercontent.com/MLH/mlh-hackathon-organizer-guide/master/general-information/hackathon-timeline.md",
+    "getting-sponsorship.md": "https://raw.githubusercontent.com/MLH/mlh-hackathon-organizer-guide/master/general-information/getting-sponsorship/README.md",
+    "managing-registrations.md": "https://raw.githubusercontent.com/MLH/mlh-hackathon-organizer-guide/master/general-information/managing-registrations/README.md",
+    "judging-and-submissions.md": "https://raw.githubusercontent.com/MLH/mlh-hackathon-organizer-guide/master/general-information/judging-and-submissions/README.md",
     "code-of-conduct.md": "https://raw.githubusercontent.com/MLH/mlh-policies/main/code-of-conduct.md",
+    "community-values.md": "https://raw.githubusercontent.com/MLH/mlh-policies/main/community-values.md",
     "hack-days-guide.md": "https://raw.githubusercontent.com/MLH/mlh-hack-days-organizer-guide/main/README.md",
 }
 
@@ -546,10 +551,10 @@ def main():
     
     client = genai.Client(api_key=api_key)
     
-    # Create vector store
+    # Create FileSearchStore
     print("📦 Creating FileSearchStore...")
-    store = client.vector_stores.create(
-        config=types.CreateVectorStoreConfig(
+    store = client.file_search_stores.create(
+        config=types.CreateFileSearchStoreConfig(
             display_name="MLH Documentation Store",
         )
     )
@@ -565,18 +570,19 @@ def main():
                 # Download
                 file_path = download_file(url, filename, temp_path)
                 
-                # Upload to Gemini Files API
+                # Upload directly to the FileSearchStore
                 print(f"  Uploading {filename}...")
-                uploaded_file = client.files.upload(file=str(file_path))
-                
-                # Add to vector store
-                print(f"  Adding to store...")
-                client.vector_stores.add_files(
-                    vector_store=store.name,
-                    files=[uploaded_file.name]
+                operation = client.file_search_stores.upload_to_file_search_store(
+                    file_search_store_name=store.name,
+                    file=str(file_path),
                 )
                 
-                print(f"✅ {filename} indexed\n")
+                # Wait for upload operation to complete
+                while not operation.done:
+                    time.sleep(2)
+                    operation = client.operations.get(operation)
+                
+                print(f"✅ {filename} uploaded\n")
                 
             except Exception as e:
                 print(f"❌ Error with {filename}: {e}\n")
@@ -599,9 +605,9 @@ if __name__ == "__main__":
 ```
 1. MLH_DOCS dict: Maps filename → raw GitHub URL
 2. tempfile: Download to temp folder (auto-cleanup)
-3. client.vector_stores.create(): Creates empty store
-4. client.files.upload(): Uploads file to Gemini
-5. vector_stores.add_files(): Adds to store for indexing
+3. client.file_search_stores.create(): Creates empty store
+4. upload_to_file_search_store(): Uploads file directly to store
+5. operations.get(): Polls until upload completes
 ```
 
 **Run it:**
@@ -614,13 +620,12 @@ python setup_store.py
 
 ```
 📦 Creating FileSearchStore...
-✅ Created: vectorstores/abc123xyz
+✅ Created: fileSearchStores/abc123xyz
 
 📥 Uploading documents...
-  Downloading hackathon-guide.md...
-  Uploading hackathon-guide.md...
-  Adding to store...
-✅ hackathon-guide.md indexed
+  Downloading hackathon-organizer-guide.md...
+  Uploading hackathon-organizer-guide.md...
+✅ hackathon-organizer-guide.md uploaded
 
   [... same for other files ...]
 
@@ -628,10 +633,10 @@ python setup_store.py
 🎉 Setup complete!
 ====================================
 
-Store name: vectorstores/abc123xyz
+Store name: fileSearchStores/abc123xyz
 
 Add this to your .env file:
-FILE_SEARCH_STORE_NAME=vectorstores/abc123xyz
+FILE_SEARCH_STORE_NAME=fileSearchStores/abc123xyz
 ```
 
 **Say:**
@@ -651,7 +656,7 @@ Copy that store name!
 **Add to .env:**
 
 ```bash
-FILE_SEARCH_STORE_NAME=vectorstores/abc123xyz
+FILE_SEARCH_STORE_NAME=fileSearchStores/abc123xyz
 ```
 
 ### Test Query from CLI (8 min)
@@ -689,7 +694,7 @@ def query_rag(store_name: str, query: str):
     # Create File Search tool
     file_search_tool = types.Tool(
         file_search=types.FileSearch(
-            vector_store_names=[store_name]
+            file_search_store_names=[store_name]
         )
     )
     
@@ -1110,7 +1115,7 @@ def query_rag_streaming(client, store_name, query):
     """Stream response and return citations."""
     file_search_tool = types.Tool(
         file_search=types.FileSearch(
-            vector_store_names=[store_name]
+            file_search_store_names=[store_name]
         )
     )
     

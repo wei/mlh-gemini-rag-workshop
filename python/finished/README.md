@@ -114,18 +114,21 @@ stream = client.models.generate_content_stream(
     contents=query,
     config=types.GenerateContentConfig(
         tools=[file_search_tool],
-        response_modalities=["TEXT"],
     )
 )
 ```
 
-**Citations:**
+**Sources (Grounding Metadata):**
 ```python
-if hasattr(candidate, 'grounding_metadata'):
-    metadata = candidate.grounding_metadata
-    if hasattr(metadata, 'file_citations'):
-        for citation in metadata.file_citations:
-            # Process citation...
+grounding = getattr(candidate, "grounding_metadata", None)
+if grounding:
+    chunks = getattr(grounding, "grounding_chunks", None)
+    if chunks:
+        for gc in chunks:
+            ctx = getattr(gc, "retrieved_context", None)
+            if ctx:
+                title = getattr(ctx, "title", "Unknown")
+                uri = getattr(ctx, "uri", "")
 ```
 
 ## Troubleshooting
@@ -186,7 +189,6 @@ In `app.py`, add personality to the assistant:
 config=types.GenerateContentConfig(
     system_instruction="You are a helpful MLH expert. Be concise and friendly.",
     tools=[file_search_tool],
-    response_modalities=["TEXT"],
 )
 ```
 
@@ -198,7 +200,6 @@ Control randomness (0 = deterministic, 1 = creative):
 config=types.GenerateContentConfig(
     temperature=0.3,  # More focused and consistent
     tools=[file_search_tool],
-    response_modalities=["TEXT"],
 )
 ```
 

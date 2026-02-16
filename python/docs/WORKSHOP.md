@@ -527,16 +527,17 @@ python setup_store.py
 📦 Creating FileSearchStore...
 ✅ Created store: fileSearchStores/abc123xyz456
 
-📥 Downloading and uploading MLH docs...
+📄 Downloading and uploading MLH docs...
+
   📥 Downloading hackathon-organizer-guide.md...
-  ☁️  Uploading hackathon-organizer-guide.md to Gemini...
-  🗂️  Adding hackathon-organizer-guide.md to store...
-✅ hackathon-organizer-guide.md indexed
+     (5432 chars)
+  📤 Uploading hackathon-organizer-guide.md to store...
+  ✅ hackathon-organizer-guide.md uploaded successfully
 
   [... same for other files ...]
 
 ⏳ Waiting for indexing to complete...
-  Progress: 4/4 files processed
+  Progress: 10 active, 0 pending, 0 failed (total: 10)
 ✅ Indexing complete!
 
 ============================================================
@@ -718,16 +719,17 @@ python query_test.py "How do I get reimbursed for a Hack Day?"
 ============================================================
 
 💬 Response:
+
 To get reimbursed for a Hack Day, you need to submit receipts for approved expenses to MLH within 30 days of your event. Approved expenses typically include venue costs, food, and supplies. Make sure to check the Hack Day organizer guide for the complete list of reimbursable items and the submission process.
 
 ============================================================
-📎 Citations (2):
+📎 Sources (2 chunks retrieved):
 
-1. hack-days-guide.md
-   "Reimbursement requires submission of itemized receipts within 30 days. Approved expenses include venue rental, catering, and event supplies up to $500..."
+  1. hack-days-guide.md
+     URI: ...
 
-2. hack-days-guide.md
-   "To ensure timely reimbursement, email receipts to hackdays@mlh.io with your event name and date in the subject line..."
+  2. hack-days-guide.md
+     URI: ...
 ```
 
 **🎉 It works!** Notice:
@@ -1214,7 +1216,6 @@ Make the bot more concise or friendlier:
 config=types.GenerateContentConfig(
     system_instruction="You are a helpful MLH expert. Be concise and friendly. If you don't know, say so.",
     tools=[file_search_tool],
-    response_modalities=["TEXT"],
 )
 ```
 

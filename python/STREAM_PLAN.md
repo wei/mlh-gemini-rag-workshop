@@ -3,7 +3,7 @@
 **Target Audience:** Developers/students learning RAG with Python + Streamlit + Gemini File Search  
 **Duration:** 2 hours  
 **Format:** Live coding workshop  
-**Demo Corpus:** MLH documentation (hackathon organizer guide, policies, hack days guide, fellowship FAQ)
+**Demo Corpus:** MLH documentation (hackathon organizer guide, policies, code of conduct, hack days guide)
 
 ---
 
@@ -527,6 +527,7 @@ MLH_DOCS = {
     "getting-sponsorship.md": "https://raw.githubusercontent.com/MLH/mlh-hackathon-organizer-guide/master/general-information/getting-sponsorship/README.md",
     "managing-registrations.md": "https://raw.githubusercontent.com/MLH/mlh-hackathon-organizer-guide/master/general-information/managing-registrations/README.md",
     "judging-and-submissions.md": "https://raw.githubusercontent.com/MLH/mlh-hackathon-organizer-guide/master/general-information/judging-and-submissions/README.md",
+    "mlh-community-values.md": "https://raw.githubusercontent.com/MLH/mlh-hackathon-organizer-guide/master/overview/mlh-community-values.md",
     "code-of-conduct.md": "https://raw.githubusercontent.com/MLH/mlh-policies/main/code-of-conduct.md",
     "community-values.md": "https://raw.githubusercontent.com/MLH/mlh-policies/main/community-values.md",
     "hack-days-guide.md": "https://raw.githubusercontent.com/MLH/mlh-hack-days-organizer-guide/main/README.md",
@@ -687,7 +688,7 @@ from google.genai import types
 load_dotenv()
 
 def query_rag(store_name: str, query: str):
-    """Query the RAG system and return response + citations."""
+    """Query the RAG system and return the response."""
     api_key = os.getenv("GEMINI_API_KEY")
     client = genai.Client(api_key=api_key)
     
@@ -704,24 +705,10 @@ def query_rag(store_name: str, query: str):
         contents=query,
         config=types.GenerateContentConfig(
             tools=[file_search_tool],
-            response_modalities=["TEXT"],
         )
     )
     
-    # Extract citations
-    citations = []
-    if hasattr(response, 'candidates') and response.candidates:
-        candidate = response.candidates[0]
-        if hasattr(candidate, 'grounding_metadata'):
-            metadata = candidate.grounding_metadata
-            if hasattr(metadata, 'file_citations'):
-                for citation in metadata.file_citations:
-                    citations.append({
-                        'source': citation.file_name if hasattr(citation, 'file_name') else 'Unknown',
-                        'text': citation.text if hasattr(citation, 'text') else ''
-                    })
-    
-    return response.text, citations
+    return response
 
 def main():
     if len(sys.argv) < 2:
@@ -736,21 +723,32 @@ def main():
         sys.exit(1)
     
     print(f"🔍 Query: {query}")
+    print(f"📚 Store: {store_name}")
     print("="*60 + "\n")
     
-    text, citations = query_rag(store_name, query)
+    response = query_rag(store_name, query)
     
     print("💬 Response:")
-    print(text)
+    print(response.text)
     
-    if citations:
-        print("\n" + "="*60)
-        print(f"📎 Citations ({len(citations)}):\n")
-        for i, cite in enumerate(citations, 1):
-            print(f"{i}. {cite['source']}")
-            if cite['text']:
-                preview = cite['text'][:150] + "..." if len(cite['text']) > 150 else cite['text']
-                print(f"   \"{preview}\"\n")
+    # Print grounding metadata if available
+    if response.candidates:
+        candidate = response.candidates[0]
+        grounding = getattr(candidate, "grounding_metadata", None)
+        if grounding:
+            chunks = getattr(grounding, "grounding_chunks", None)
+            if chunks:
+                print("\n" + "="*60)
+                print(f"📎 Sources ({len(chunks)} chunks retrieved):\n")
+                for i, chunk in enumerate(chunks, 1):
+                    ctx = getattr(chunk, "retrieved_context", None)
+                    if ctx:
+                        title = getattr(ctx, "title", "Unknown")
+                        uri = getattr(ctx, "uri", "")
+                        print(f"  {i}. {title}")
+                        if uri:
+                            print(f"     URI: {uri}")
+                    print()
 
 if __name__ == "__main__":
     main()
@@ -766,19 +764,20 @@ python query_test.py "How do I get reimbursed for a Hack Day?"
 
 ```
 🔍 Query: How do I get reimbursed for a Hack Day?
+📚 Store: fileSearchStores/abc123xyz456
 ============================================================
 
 💬 Response:
 To get reimbursed for a Hack Day, you need to submit receipts for approved expenses to MLH within 30 days of your event. Approved expenses typically include venue costs, food, and supplies. Make sure to check the Hack Day organizer guide for the complete list of reimbursable items.
 
 ============================================================
-📎 Citations (2):
+📎 Sources (2 chunks retrieved):
 
-1. hack-days-guide.md
-   "Reimbursement requires submission of itemized receipts within 30 days. Approved expenses include venue rental, catering, and event supplies up to $500..."
+  1. hack-days-guide.md
+     URI: ...
 
-2. hack-days-guide.md
-   "To ensure timely reimbursement, email receipts to hackdays@mlh.io with your event name and date in the subject line..."
+  2. hack-days-guide.md
+     URI: ...
 ```
 
 **Say:**
@@ -1112,7 +1111,7 @@ def get_gemini_client():
     return genai.Client(api_key=api_key)
 
 def query_rag_streaming(client, store_name, query):
-    """Stream response and return citations."""
+    """Stream response and return sources."""
     file_search_tool = types.Tool(
         file_search=types.FileSearch(
             file_search_store_names=[store_name]
@@ -1124,32 +1123,30 @@ def query_rag_streaming(client, store_name, query):
         contents=query,
         config=types.GenerateContentConfig(
             tools=[file_search_tool],
-            response_modalities=["TEXT"],
         )
     )
     
-    full_response = ""
-    citations = []
-    
     for chunk in stream:
         if hasattr(chunk, 'text') and chunk.text:
-            full_response += chunk.text
             yield chunk.text
         
-        # Extract citations
+        # Extract grounding metadata (usually in final chunk)
         if hasattr(chunk, 'candidates') and chunk.candidates:
             candidate = chunk.candidates[0]
-            if hasattr(candidate, 'grounding_metadata'):
-                metadata = candidate.grounding_metadata
-                if hasattr(metadata, 'file_citations'):
-                    for citation in metadata.file_citations:
-                        citations.append({
-                            'source': citation.file_name if hasattr(citation, 'file_name') else 'Unknown',
-                            'text': citation.text if hasattr(citation, 'text') else ''
-                        })
-    
-    if citations:
-        yield {"citations": citations}
+            grounding = getattr(candidate, "grounding_metadata", None)
+            if grounding:
+                chunks_list = getattr(grounding, "grounding_chunks", None)
+                if chunks_list:
+                    sources = []
+                    for gc in chunks_list:
+                        ctx = getattr(gc, "retrieved_context", None)
+                        if ctx:
+                            sources.append({
+                                "title": getattr(ctx, "title", "Unknown"),
+                                "uri": getattr(ctx, "uri", ""),
+                            })
+                    if sources:
+                        yield {"sources": sources}
 ```
 
 **Update the assistant response block:**
@@ -1167,13 +1164,13 @@ if user_input:
     with st.chat_message("assistant"):
         message_placeholder = st.empty()
         full_response = ""
-        citations = []
+        sources = []
         
         client = get_gemini_client()
         
         for chunk in query_rag_streaming(client, store_name, user_input):
-            if isinstance(chunk, dict) and "citations" in chunk:
-                citations = chunk["citations"]
+            if isinstance(chunk, dict) and "sources" in chunk:
+                sources = chunk["sources"]
             else:
                 full_response += chunk
                 message_placeholder.markdown(full_response + "▌")
@@ -1184,7 +1181,7 @@ if user_input:
         st.session_state.messages.append({
             "role": "assistant",
             "content": full_response,
-            "citations": citations
+            "sources": sources,
         })
 ```
 
@@ -1207,27 +1204,25 @@ for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
         
-        # Show citations
-        if "citations" in message and message["citations"]:
-            with st.expander(f"📎 View {len(message['citations'])} citation(s)"):
-                for i, cite in enumerate(message["citations"], 1):
-                    st.markdown(f"**{i}. {cite['source']}**")
-                    if cite.get('text'):
-                        preview = cite['text'][:200] + "..." if len(cite['text']) > 200 else cite['text']
-                        st.caption(f'"{preview}"')
+        # Show sources
+        if "sources" in message and message["sources"]:
+            with st.expander(f"📎 View {len(message['sources'])} source(s)"):
+                for i, source in enumerate(message["sources"], 1):
+                    st.markdown(f"**{i}. {source['title']}**")
+                    if source.get("uri"):
+                        st.caption(source["uri"])
                     st.divider()
 ```
 
 **And after generating new response:**
 
 ```python
-if citations:
-    with st.expander(f"📎 View {len(citations)} citation(s)"):
-        for i, cite in enumerate(citations, 1):
-            st.markdown(f"**{i}. {cite['source']}**")
-            if cite.get('text'):
-                preview = cite['text'][:200] + "..." if len(cite['text']) > 200 else cite['text']
-                st.caption(f'"{preview}"')
+if sources:
+    with st.expander(f"📎 View {len(sources)} source(s)"):
+        for i, source in enumerate(sources, 1):
+            st.markdown(f"**{i}. {source['title']}**")
+            if source.get("uri"):
+                st.caption(source["uri"])
             st.divider()
 ```
 

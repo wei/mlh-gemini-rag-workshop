@@ -1,7 +1,17 @@
 .worktrees/
+
+# env files (keep templates)
 .env
-venv/
-__pycache__/
-node_modules/
-.next/
+.env.*
+!.env.example
+
+# Python
+**/venv/
+**/__pycache__/
+
+# Node
+**/node_modules/
+**/.next/
+
+# Misc
 tmp/

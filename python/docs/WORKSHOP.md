@@ -190,7 +190,7 @@ Normally you'd need to:
 
 ```python
 # That's it!
-client.vector_stores.create()
+client.file_search_stores.create()
 client.files.upload(...)
 response = client.generate_content(query, tools=[file_search_tool])
 ```
@@ -363,9 +363,16 @@ This script will:
 ```python
 #!/usr/bin/env python3
 """
-Setup script to create FileSearchStore and upload MLH documentation.
+Setup script to create a Gemini FileSearchStore and upload MLH documentation.
 
-Run this once:
+This script:
+1. Creates a new FileSearchStore
+2. Downloads MLH docs from GitHub (raw markdown files)
+3. Uploads them to the store
+4. Polls until indexing is complete
+5. Prints the store name for use in your .env file
+
+Run this once before using the chat app:
     python setup_store.py
 """
 
@@ -381,11 +388,18 @@ from google.genai import types
 # Load environment variables
 load_dotenv()
 
-# MLH documentation URLs (raw markdown from GitHub)
+# MLH documentation URLs (raw GitHub content)
+# Note: mlh-hackathon-organizer-guide uses 'master' branch, others use 'main'
 MLH_DOCS = {
-    "hackathon-organizer-guide.md": "https://raw.githubusercontent.com/MLH/mlh-hackathon-organizer-guide/main/README.md",
-    "mlh-policies.md": "https://raw.githubusercontent.com/MLH/mlh-policies/main/README.md",
+    "hackathon-organizer-guide.md": "https://raw.githubusercontent.com/MLH/mlh-hackathon-organizer-guide/master/README.md",
+    "what-is-mlh.md": "https://raw.githubusercontent.com/MLH/mlh-hackathon-organizer-guide/master/overview/what-is-mlh.md",
+    "hackathon-timeline.md": "https://raw.githubusercontent.com/MLH/mlh-hackathon-organizer-guide/master/general-information/hackathon-timeline.md",
+    "getting-sponsorship.md": "https://raw.githubusercontent.com/MLH/mlh-hackathon-organizer-guide/master/general-information/getting-sponsorship/README.md",
+    "managing-registrations.md": "https://raw.githubusercontent.com/MLH/mlh-hackathon-organizer-guide/master/general-information/managing-registrations/README.md",
+    "judging-and-submissions.md": "https://raw.githubusercontent.com/MLH/mlh-hackathon-organizer-guide/master/general-information/judging-and-submissions/README.md",
+    "mlh-community-values.md": "https://raw.githubusercontent.com/MLH/mlh-hackathon-organizer-guide/master/overview/mlh-community-values.md",
     "code-of-conduct.md": "https://raw.githubusercontent.com/MLH/mlh-policies/main/code-of-conduct.md",
+    "community-values.md": "https://raw.githubusercontent.com/MLH/mlh-policies/main/community-values.md",
     "hack-days-guide.md": "https://raw.githubusercontent.com/MLH/mlh-hack-days-organizer-guide/main/README.md",
 }
 
@@ -395,35 +409,36 @@ def download_file(url: str, filename: str, temp_dir: Path) -> Path:
     print(f"  📥 Downloading {filename}...")
     response = requests.get(url)
     response.raise_for_status()
-    
+
     file_path = temp_dir / filename
-    file_path.write_text(response.text, encoding='utf-8')
+    file_path.write_text(response.text, encoding="utf-8")
+    print(f"     ({len(response.text)} chars)")
     return file_path
 
 
 def wait_for_indexing(client: genai.Client, store_name: str, timeout: int = 300):
-    """Poll the store until indexing is complete."""
+    """Poll the store until all documents are indexed."""
     print("\n⏳ Waiting for indexing to complete...")
     start_time = time.time()
-    
+
     while time.time() - start_time < timeout:
-        store = client.vector_stores.get(name=store_name)
-        
-        # Check if all files are processed
-        if hasattr(store, 'file_counts'):
-            total = store.file_counts.total
-            processed = store.file_counts.completed + store.file_counts.failed
-            
-            print(f"  Progress: {processed}/{total} files processed")
-            
-            if processed == total:
-                if store.file_counts.failed > 0:
-                    print(f"  ⚠️  {store.file_counts.failed} files failed to index")
-                print("✅ Indexing complete!")
-                return True
-        
+        store = client.file_search_stores.get(name=store_name)
+
+        active = store.active_documents_count or 0
+        pending = store.pending_documents_count or 0
+        failed = store.failed_documents_count or 0
+        total = active + pending + failed
+
+        print(f"  Progress: {active} active, {pending} pending, {failed} failed (total: {total})")
+
+        if pending == 0 and total > 0:
+            if failed > 0:
+                print(f"  ⚠️  {failed} documents failed to index")
+            print("✅ Indexing complete!")
+            return True
+
         time.sleep(5)
-    
+
     print("⚠️  Timeout waiting for indexing")
     return False
 
@@ -435,58 +450,64 @@ def main():
         print("❌ Error: GEMINI_API_KEY not found in .env file")
         print("   Get your key from https://aistudio.google.com/apikey")
         return
-    
+
     client = genai.Client(api_key=api_key)
-    
-    # Step 1: Create FileSearchStore
+
+    # Create FileSearchStore
     print("📦 Creating FileSearchStore...")
-    store = client.vector_stores.create(
-        config=types.CreateVectorStoreConfig(
+    store = client.file_search_stores.create(
+        config=types.CreateFileSearchStoreConfig(
             display_name="MLH Documentation Store",
         )
     )
     print(f"✅ Created store: {store.name}")
-    
-    # Step 2: Download and upload documents
-    print("\n📥 Downloading and uploading MLH docs...")
+
+    # Download and upload files
+    print("\n📄 Downloading and uploading MLH docs...\n")
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_path = Path(temp_dir)
-        
+
         for filename, url in MLH_DOCS.items():
             try:
                 # Download file
                 file_path = download_file(url, filename, temp_path)
-                
-                # Upload to Gemini Files API
-                print(f"  ☁️  Uploading {filename} to Gemini...")
-                uploaded_file = client.files.upload(file=str(file_path))
-                
-                # Add file to vector store
-                print(f"  🗂️  Adding {filename} to store...")
-                client.vector_stores.add_files(
-                    vector_store=store.name,
-                    files=[uploaded_file.name]
+
+                # Upload directly to the FileSearchStore
+                print(f"  📤 Uploading {filename} to store...")
+                operation = client.file_search_stores.upload_to_file_search_store(
+                    file_search_store_name=store.name,
+                    file=str(file_path),
                 )
-                
-                print(f"✅ {filename} indexed\n")
-                
+
+                # Wait for upload operation to complete
+                while not operation.done:
+                    time.sleep(2)
+                    operation = client.operations.get(operation)
+
+                if operation.error:
+                    print(f"  ❌ Error uploading {filename}: {operation.error}")
+                else:
+                    print(f"  ✅ {filename} uploaded successfully\n")
+
             except Exception as e:
-                print(f"❌ Error processing {filename}: {e}\n")
-    
-    # Step 3: Wait for indexing
+                print(f"  ❌ Error processing {filename}: {e}\n")
+
+    # Wait for indexing
     wait_for_indexing(client, store.name)
-    
-    # Step 4: Print final instructions
-    print("\n" + "="*60)
+
+    # Print final instructions
+    print("\n" + "=" * 60)
     print("🎉 Setup complete!")
-    print("="*60)
+    print("=" * 60)
     print(f"\nStore Name: {store.name}")
     print("\n📝 Next steps:")
     print("1. Copy the store name above")
     print("2. Add it to your .env file:")
     print(f"   FILE_SEARCH_STORE_NAME={store.name}")
-    print("3. Test it:")
+    print("3. Test from the command line:")
     print(f'   python query_test.py "How do I get reimbursed for a Hack Day?"')
+    print("4. Or run the chat app:")
+    print("   streamlit run app.py")
     print()
 
 
@@ -504,7 +525,7 @@ python setup_store.py
 
 ```
 📦 Creating FileSearchStore...
-✅ Created store: vectorstores/abc123xyz456
+✅ Created store: fileSearchStores/abc123xyz456
 
 📥 Downloading and uploading MLH docs...
   📥 Downloading hackathon-organizer-guide.md...
@@ -522,12 +543,12 @@ python setup_store.py
 🎉 Setup complete!
 ============================================================
 
-Store Name: vectorstores/abc123xyz456
+Store Name: fileSearchStores/abc123xyz456
 
 📝 Next steps:
 1. Copy the store name above
 2. Add it to your .env file:
-   FILE_SEARCH_STORE_NAME=vectorstores/abc123xyz456
+   FILE_SEARCH_STORE_NAME=fileSearchStores/abc123xyz456
 3. Test it:
    python query_test.py "How do I get reimbursed for a Hack Day?"
 ```
@@ -546,7 +567,7 @@ Store Name: vectorstores/abc123xyz456
 **Copy the store name** and add to `.env`:
 
 ```bash
-FILE_SEARCH_STORE_NAME=vectorstores/abc123xyz456
+FILE_SEARCH_STORE_NAME=fileSearchStores/abc123xyz456
 ```
 
 Replace `abc123xyz456` with your actual store name!
@@ -562,10 +583,15 @@ Before building a UI, let's test that RAG works.
 ```python
 #!/usr/bin/env python3
 """
-CLI tool to test RAG queries.
+Simple CLI tool to test RAG queries against your FileSearchStore.
 
 Usage:
-    python query_test.py "Your question here"
+    python query_test.py <query>              (reads store name from .env)
+    python query_test.py <store_name> <query>
+
+Example:
+    python query_test.py "How do I get reimbursed for a Hack Day?"
+    python query_test.py "fileSearchStores/abc123" "What is the MLH code of conduct?"
 """
 
 import os
@@ -578,108 +604,98 @@ from google.genai import types
 load_dotenv()
 
 
-def query_rag(store_name: str, query: str) -> tuple[str, list]:
+def query_rag(store_name: str, query: str) -> str:
     """
-    Query the RAG system and return response text + citations.
-    
+    Query the RAG system and return the response.
+
     Args:
-        store_name: The FileSearchStore name (e.g., "vectorstores/abc123")
+        store_name: The FileSearchStore name (e.g., "fileSearchStores/abc123")
         query: The user's question
-    
+
     Returns:
-        Tuple of (response_text, citations_list)
+        The model's response text
     """
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         raise ValueError("GEMINI_API_KEY not found in environment")
-    
+
     client = genai.Client(api_key=api_key)
-    
-    # Create File Search tool with the store
+
+    # Create file search tool pointing to our store
     file_search_tool = types.Tool(
         file_search=types.FileSearch(
-            vector_store_names=[store_name]
+            file_search_store_names=[store_name]
         )
     )
-    
-    # Generate response with RAG
+
+    # Generate response using the file search tool
     response = client.models.generate_content(
-        model='gemini-2.5-flash',
+        model="gemini-2.5-flash",
         contents=query,
         config=types.GenerateContentConfig(
             tools=[file_search_tool],
-            response_modalities=["TEXT"],
-        )
+        ),
     )
-    
-    # Extract text
-    text = response.text
-    
-    # Extract citations from grounding metadata
-    citations = []
-    if hasattr(response, 'candidates') and response.candidates:
-        candidate = response.candidates[0]
-        if hasattr(candidate, 'grounding_metadata'):
-            metadata = candidate.grounding_metadata
-            if hasattr(metadata, 'file_citations'):
-                for citation in metadata.file_citations:
-                    citations.append({
-                        'source': citation.file_name if hasattr(citation, 'file_name') else 'Unknown',
-                        'text': citation.text if hasattr(citation, 'text') else ''
-                    })
-    
-    return text, citations
+
+    return response
 
 
 def main():
     # Parse arguments
     if len(sys.argv) < 2:
-        print("❌ Error: Missing query argument")
+        print("❌ Error: Missing arguments")
         print("\nUsage:")
         print('  python query_test.py "Your question here"')
-        print("\nExample:")
-        print('  python query_test.py "How do I organize a hackathon?"')
+        print('  python query_test.py "fileSearchStores/abc" "Your question"')
         sys.exit(1)
-    
-    query = sys.argv[1]
-    
-    # Get store name from environment
-    store_name = os.getenv("FILE_SEARCH_STORE_NAME")
-    if not store_name:
-        print("❌ Error: FILE_SEARCH_STORE_NAME not found in .env file")
-        print("   Run setup_store.py first and add the store name to .env")
-        sys.exit(1)
-    
+
+    # Determine store name and query
+    if len(sys.argv) == 2:
+        store_name = os.getenv("FILE_SEARCH_STORE_NAME")
+        if not store_name:
+            print("❌ Error: FILE_SEARCH_STORE_NAME not found in .env file")
+            print("   Run setup_store.py first, then add the store name to .env")
+            sys.exit(1)
+        query = sys.argv[1]
+    else:
+        store_name = sys.argv[1]
+        query = sys.argv[2]
+
     # Execute query
     print(f"🔍 Query: {query}")
     print(f"📚 Store: {store_name}")
-    print("\n" + "="*60 + "\n")
-    
+    print("\n" + "=" * 60 + "\n")
+
     try:
-        text, citations = query_rag(store_name, query)
-        
-        # Print response
-        print("💬 Response:")
-        print(text)
-        
-        # Print citations
-        if citations:
-            print("\n" + "="*60)
-            print(f"📎 Citations ({len(citations)}):\n")
-            for i, citation in enumerate(citations, 1):
-                print(f"{i}. {citation['source']}")
-                if citation['text']:
-                    # Show first 150 chars of cited text
-                    preview = citation['text'][:150]
-                    if len(citation['text']) > 150:
-                        preview += "..."
-                    print(f'   "{preview}"')
-                print()
-        else:
-            print("\n(No citations found)")
-        
+        response = query_rag(store_name, query)
+
+        # Print response text
+        print("💬 Response:\n")
+        print(response.text)
+
+        # Print grounding metadata if available
+        if response.candidates:
+            candidate = response.candidates[0]
+            grounding = getattr(candidate, "grounding_metadata", None)
+            if grounding:
+                chunks = getattr(grounding, "grounding_chunks", None)
+                if chunks:
+                    print("\n" + "=" * 60)
+                    print(f"📎 Sources ({len(chunks)} chunks retrieved):\n")
+                    for i, chunk in enumerate(chunks, 1):
+                        retrieved_context = getattr(chunk, "retrieved_context", None)
+                        if retrieved_context:
+                            title = getattr(retrieved_context, "title", "Unknown")
+                            uri = getattr(retrieved_context, "uri", "")
+                            print(f"  {i}. {title}")
+                            if uri:
+                                print(f"     URI: {uri}")
+                        print()
+
     except Exception as e:
         print(f"❌ Error: {e}")
+        import traceback
+        traceback.print_exc()
         sys.exit(1)
 
 
@@ -697,7 +713,7 @@ python query_test.py "How do I get reimbursed for a Hack Day?"
 
 ```
 🔍 Query: How do I get reimbursed for a Hack Day?
-📚 Store: vectorstores/abc123xyz456
+📚 Store: fileSearchStores/abc123xyz456
 
 ============================================================
 
@@ -835,7 +851,11 @@ Now let's make it actually answer questions with RAG.
 ```python
 #!/usr/bin/env python3
 """
-MLH Documentation Assistant - RAG-powered chatbot with Streamlit.
+MLH Documentation Assistant - A RAG-powered chatbot using Gemini File Search
+
+This Streamlit app lets you chat with MLH's documentation using RAG.
+It uses Gemini's File Search feature to retrieve relevant context
+and generate accurate, grounded responses with citations.
 """
 
 import os
@@ -854,16 +874,63 @@ st.set_page_config(
     layout="wide"
 )
 
+# Sidebar
+with st.sidebar:
+    st.title("🎓 MLH Doc Assistant")
+    st.markdown("Ask questions about MLH's documentation!")
+    
+    st.divider()
+    
+    # Store name input
+    default_store = os.getenv("FILE_SEARCH_STORE_NAME", "")
+    store_name = st.text_input(
+        "FileSearchStore Name",
+        value=default_store,
+        help="The vector store name from setup_store.py"
+    )
+    
+    if not store_name:
+        st.warning("⚠️ Please enter a store name or add it to your .env file")
+    
+    st.divider()
+    
+    # Example questions
+    st.subheader("💡 Try asking:")
+    example_questions = [
+        "How do I get reimbursed for a Hack Day?",
+        "What are the requirements to be an MLH member event?",
+        "What is MLH's code of conduct?",
+        "How do I organize a hackathon?",
+        "What support does MLH provide to organizers?"
+    ]
+    
+    for question in example_questions:
+        if st.button(question, key=f"example_{hash(question)}", use_container_width=True):
+            st.session_state.pending_question = question
+    
+    st.divider()
+    
+    # Clear chat button
+    if st.button("🗑️ Clear Chat", use_container_width=True):
+        st.session_state.messages = []
+        st.rerun()
+    
+    st.divider()
+    st.caption("Built with Gemini File Search")
+
 # Initialize session state
 if "messages" not in st.session_state:
     st.session_state.messages = []
+
+if "pending_question" not in st.session_state:
+    st.session_state.pending_question = None
 
 
 def get_gemini_client():
     """Initialize and return Gemini client."""
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
-        st.error("❌ GEMINI_API_KEY not found in .env file")
+        st.error("❌ GEMINI_API_KEY not found. Add it to your .env file.")
         st.stop()
     return genai.Client(api_key=api_key)
 
@@ -878,45 +945,44 @@ def query_rag_streaming(client: genai.Client, store_name: str, query: str):
     if not store_name:
         raise ValueError("Store name is required")
     
-    # Create File Search tool
+    # Create file search tool pointing to our store
     file_search_tool = types.Tool(
         file_search=types.FileSearch(
-            vector_store_names=[store_name]
+            file_search_store_names=[store_name]
         )
     )
-    
+
     # Stream the response
     stream = client.models.generate_content_stream(
-        model='gemini-2.5-flash',
+        model="gemini-2.5-flash",
         contents=query,
         config=types.GenerateContentConfig(
             tools=[file_search_tool],
-            response_modalities=["TEXT"],
-        )
+        ),
     )
-    
-    # Yield text chunks
-    citations = []
-    
+
+    # Yield text chunks as they arrive
     for chunk in stream:
-        if hasattr(chunk, 'text') and chunk.text:
+        if hasattr(chunk, "text") and chunk.text:
             yield chunk.text
-        
-        # Extract citations from the final chunk
-        if hasattr(chunk, 'candidates') and chunk.candidates:
+
+        # Check for grounding metadata (usually in the final chunk)
+        if hasattr(chunk, "candidates") and chunk.candidates:
             candidate = chunk.candidates[0]
-            if hasattr(candidate, 'grounding_metadata'):
-                metadata = candidate.grounding_metadata
-                if hasattr(metadata, 'file_citations'):
-                    for citation in metadata.file_citations:
-                        citations.append({
-                            'source': citation.file_name if hasattr(citation, 'file_name') else 'Unknown',
-                            'text': citation.text if hasattr(citation, 'text') else ''
-                        })
-    
-    # Return citations as a special marker
-    if citations:
-        yield {"citations": citations}
+            grounding = getattr(candidate, "grounding_metadata", None)
+            if grounding:
+                chunks_list = getattr(grounding, "grounding_chunks", None)
+                if chunks_list:
+                    sources = []
+                    for gc in chunks_list:
+                        ctx = getattr(gc, "retrieved_context", None)
+                        if ctx:
+                            sources.append({
+                                "title": getattr(ctx, "title", "Unknown"),
+                                "uri": getattr(ctx, "uri", ""),
+                            })
+                    if sources:
+                        yield {"sources": sources}
 
 
 # Main chat interface
@@ -927,24 +993,26 @@ for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
         
-        # Display citations if present
-        if "citations" in message and message["citations"]:
-            with st.expander(f"📎 View {len(message['citations'])} citation(s)"):
-                for i, citation in enumerate(message["citations"], 1):
-                    st.markdown(f"**{i}. {citation['source']}**")
-                    if citation.get('text'):
-                        preview = citation['text'][:200] + "..." if len(citation['text']) > 200 else citation['text']
-                        st.caption(f'"{preview}"')
+        # Display sources if present
+        if "sources" in message and message["sources"]:
+            with st.expander(f"📎 View {len(message['sources'])} source(s)"):
+                for i, source in enumerate(message["sources"], 1):
+                    st.markdown(f"**{i}. {source['title']}**")
+                    if source.get("uri"):
+                        st.caption(source["uri"])
                     st.divider()
 
-# Chat input
-user_input = st.chat_input("Ask a question about MLH...")
+# Handle pending question from sidebar
+if st.session_state.pending_question:
+    user_input = st.session_state.pending_question
+    st.session_state.pending_question = None
+else:
+    user_input = st.chat_input("Ask a question about MLH...")
 
+# Process user input
 if user_input:
-    # Get store name
-    store_name = os.getenv("FILE_SEARCH_STORE_NAME")
     if not store_name:
-        st.error("⚠️ FILE_SEARCH_STORE_NAME not found in .env file")
+        st.error("⚠️ Please enter a FileSearchStore name in the sidebar")
         st.stop()
     
     # Add user message to chat
@@ -965,35 +1033,33 @@ if user_input:
         
         try:
             client = get_gemini_client()
-            
+            sources = []
+
             # Stream the response
             for chunk in query_rag_streaming(client, store_name, user_input):
-                if isinstance(chunk, dict) and "citations" in chunk:
-                    # Store citations
-                    citations = chunk["citations"]
+                if isinstance(chunk, dict) and "sources" in chunk:
+                    sources = chunk["sources"]
                 else:
-                    # Append text chunk
                     full_response += chunk
                     message_placeholder.markdown(full_response + "▌")
-            
+
             # Final update without cursor
             message_placeholder.markdown(full_response)
-            
-            # Display citations
-            if citations:
-                with st.expander(f"📎 View {len(citations)} citation(s)"):
-                    for i, citation in enumerate(citations, 1):
-                        st.markdown(f"**{i}. {citation['source']}**")
-                        if citation.get('text'):
-                            preview = citation['text'][:200] + "..." if len(citation['text']) > 200 else citation['text']
-                            st.caption(f'"{preview}"')
+
+            # Display sources
+            if sources:
+                with st.expander(f"📎 View {len(sources)} source(s)"):
+                    for i, source in enumerate(sources, 1):
+                        st.markdown(f"**{i}. {source['title']}**")
+                        if source.get("uri"):
+                            st.caption(source["uri"])
                         st.divider()
-            
+
             # Add assistant message to chat history
             st.session_state.messages.append({
                 "role": "assistant",
                 "content": full_response,
-                "citations": citations
+                "sources": sources,
             })
             
         except Exception as e:
@@ -1002,7 +1068,7 @@ if user_input:
 
 # Show welcome message if no messages yet
 if not st.session_state.messages:
-    st.info("👋 Welcome! Ask me anything about MLH's documentation.")
+    st.info("👋 Welcome! Ask me anything about MLH's documentation. Try one of the example questions in the sidebar!")
 ```
 
 ### Test It
@@ -1178,7 +1244,7 @@ Deploy to Streamlit Cloud (free!):
 **Fix:**
 1. Run `python setup_store.py` first
 2. Copy the output store name
-3. Add to `.env`: `FILE_SEARCH_STORE_NAME=vectorstores/abc123xyz`
+3. Add to `.env`: `FILE_SEARCH_STORE_NAME=fileSearchStores/abc123xyz`
 
 ### "Rate limit exceeded"
 

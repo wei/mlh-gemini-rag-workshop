@@ -94,47 +94,44 @@ def query_rag_streaming(client: genai.Client, store_name: str, query: str):
     if not store_name:
         raise ValueError("Store name is required")
     
-    # Create file search tool
+    # Create file search tool pointing to our store
     file_search_tool = types.Tool(
         file_search=types.FileSearch(
-            vector_store_names=[store_name]
+            file_search_store_names=[store_name]
         )
     )
-    
+
     # Stream the response
     stream = client.models.generate_content_stream(
-        model='gemini-2.5-flash',
+        model="gemini-2.5-flash",
         contents=query,
         config=types.GenerateContentConfig(
             tools=[file_search_tool],
-            response_modalities=["TEXT"],
-        )
+        ),
     )
-    
-    # Yield text chunks
-    full_response = ""
-    citations = []
-    
+
+    # Yield text chunks as they arrive
     for chunk in stream:
-        if hasattr(chunk, 'text') and chunk.text:
-            full_response += chunk.text
+        if hasattr(chunk, "text") and chunk.text:
             yield chunk.text
-        
-        # Extract citations from the final chunk
-        if hasattr(chunk, 'candidates') and chunk.candidates:
+
+        # Check for grounding metadata (usually in the final chunk)
+        if hasattr(chunk, "candidates") and chunk.candidates:
             candidate = chunk.candidates[0]
-            if hasattr(candidate, 'grounding_metadata'):
-                metadata = candidate.grounding_metadata
-                if hasattr(metadata, 'file_citations'):
-                    for citation in metadata.file_citations:
-                        citations.append({
-                            'source': citation.file_name if hasattr(citation, 'file_name') else 'Unknown',
-                            'text': citation.text if hasattr(citation, 'text') else ''
-                        })
-    
-    # Return citations as a special marker
-    if citations:
-        yield {"citations": citations}
+            grounding = getattr(candidate, "grounding_metadata", None)
+            if grounding:
+                chunks_list = getattr(grounding, "grounding_chunks", None)
+                if chunks_list:
+                    sources = []
+                    for gc in chunks_list:
+                        ctx = getattr(gc, "retrieved_context", None)
+                        if ctx:
+                            sources.append({
+                                "title": getattr(ctx, "title", "Unknown"),
+                                "uri": getattr(ctx, "uri", ""),
+                            })
+                    if sources:
+                        yield {"sources": sources}
 
 
 # Main chat interface
@@ -145,13 +142,13 @@ for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
         
-        # Display citations if present
-        if "citations" in message and message["citations"]:
-            with st.expander(f"📎 View {len(message['citations'])} citation(s)"):
-                for i, citation in enumerate(message["citations"], 1):
-                    st.markdown(f"**{i}. {citation['source']}**")
-                    if citation.get('text'):
-                        st.caption(f'"{citation["text"][:200]}..."' if len(citation['text']) > 200 else f'"{citation["text"]}"')
+        # Display sources if present
+        if "sources" in message and message["sources"]:
+            with st.expander(f"📎 View {len(message['sources'])} source(s)"):
+                for i, source in enumerate(message["sources"], 1):
+                    st.markdown(f"**{i}. {source['title']}**")
+                    if source.get("uri"):
+                        st.caption(source["uri"])
                     st.divider()
 
 # Handle pending question from sidebar
@@ -185,34 +182,33 @@ if user_input:
         
         try:
             client = get_gemini_client()
-            
+            sources = []
+
             # Stream the response
             for chunk in query_rag_streaming(client, store_name, user_input):
-                if isinstance(chunk, dict) and "citations" in chunk:
-                    # Store citations
-                    citations = chunk["citations"]
+                if isinstance(chunk, dict) and "sources" in chunk:
+                    sources = chunk["sources"]
                 else:
-                    # Append text chunk
                     full_response += chunk
                     message_placeholder.markdown(full_response + "▌")
-            
+
             # Final update without cursor
             message_placeholder.markdown(full_response)
-            
-            # Display citations
-            if citations:
-                with st.expander(f"📎 View {len(citations)} citation(s)"):
-                    for i, citation in enumerate(citations, 1):
-                        st.markdown(f"**{i}. {citation['source']}**")
-                        if citation.get('text'):
-                            st.caption(f'"{citation["text"][:200]}..."' if len(citation['text']) > 200 else f'"{citation["text"]}"')
+
+            # Display sources
+            if sources:
+                with st.expander(f"📎 View {len(sources)} source(s)"):
+                    for i, source in enumerate(sources, 1):
+                        st.markdown(f"**{i}. {source['title']}**")
+                        if source.get("uri"):
+                            st.caption(source["uri"])
                         st.divider()
-            
+
             # Add assistant message to chat history
             st.session_state.messages.append({
                 "role": "assistant",
                 "content": full_response,
-                "citations": citations
+                "sources": sources,
             })
             
         except Exception as e:

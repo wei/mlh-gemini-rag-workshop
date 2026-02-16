@@ -40,12 +40,12 @@ This will:
 - Create a new FileSearchStore
 - Download MLH documentation from GitHub
 - Upload and index the files
-- Print a store name like `vectorstores/abc123xyz`
+- Print a store name like `fileSearchStores/abc123xyz`
 
 **Copy the store name** and add it to your `.env`:
 
 ```bash
-FILE_SEARCH_STORE_NAME=vectorstores/abc123xyz
+FILE_SEARCH_STORE_NAME=fileSearchStores/abc123xyz
 ```
 
 ### 5. Test the RAG System (Optional)
@@ -102,7 +102,7 @@ The app will open in your browser at `http://localhost:8501`
 ```python
 file_search_tool = types.Tool(
     file_search=types.FileSearch(
-        vector_store_names=[store_name]
+        file_search_store_names=[store_name]
     )
 )
 ```

@@ -1,6 +1,6 @@
 # MLH Gemini RAG Workshop
 
-Build a RAG-powered doc assistant with [Gemini File Search](https://ai.google.dev/gemini-api/docs/file-search) — two complete workshops for [MLH Global Hack Week](https://ghw.mlh.io/).
+Build a RAG-powered doc assistant with [Gemini File Search](https://ai.google.dev/gemini-api/docs/file-search) for [MLH Global Hack Week](https://ghw.mlh.io/).
 
 ## What You'll Build
 
@@ -8,21 +8,19 @@ A chatbot that can answer questions about MLH's documentation using **Retrieval-
 
 The same technique works with **any** documentation. Swap in your own docs after the workshop!
 
-## Two Workshops
+## Workshop: Python + Streamlit
 
-| | Python + Streamlit | Next.js + Vercel AI SDK |
-|---|---|---|
-| **Folder** | [`python/`](./python/) | [`javascript/`](./javascript/) |
-| **Stack** | Python, Streamlit, `google-genai` SDK | Next.js, Vercel AI SDK, `@ai-sdk/google` |
-| **UI** | Streamlit chat components | React + `useChat` hook + Tailwind CSS |
-| **Best For** | Learning RAG concepts deeply | Building a production-ready web app |
-| **Deploy** | `streamlit run app.py` | `vercel deploy` → live URL |
-
-Each workshop is **self-contained** — no need to do both or in any order.
+| | Details |
+|---|---|
+| **Folder** | [`python/`](./python/) |
+| **Stack** | Python 3.10+, Streamlit, `google-genai` SDK |
+| **UI** | Streamlit chat components (chat interface in 10 lines!) |
+| **Best For** | Learning RAG concepts deeply, rapid prototyping |
+| **Deploy** | `streamlit run app.py` (or Streamlit Cloud for free hosting) |
 
 ## Demo Corpus: MLH Resources
 
-Both workshops use these MLH docs as the knowledge base:
+The workshop uses these MLH docs as the knowledge base:
 
 - [MLH Hackathon Organizer Guide](https://github.com/MLH/mlh-hackathon-organizer-guide)
 - [MLH Policies](https://github.com/MLH/mlh-policies/tree/main)
@@ -42,21 +40,29 @@ RAG works in 3 steps:
 
 ## Prerequisites
 
-- A [Google AI Studio](https://aistudio.google.com/) account and API key
-- **Python workshop:** Python 3.10+, pip
-- **JavaScript workshop:** Node.js 18+, npm
+- A [Google AI Studio](https://aistudio.google.com/) account and API key (free)
+- Python 3.10+, pip
+- No AI/ML experience required!
 
 ## Getting Started
 
 ```bash
 # Clone the repo
 git clone https://github.com/wei/mlh-gemini-rag-workshop.git
-cd mlh-gemini-rag-workshop
+cd mlh-gemini-rag-workshop/python
 
-# Choose your workshop
-cd python/    # or cd javascript/
+# Follow the STREAM_PLAN.md or docs/WORKSHOP.md
+```
 
-# Follow the STREAM_PLAN.md in each folder
+## Quick Demo
+
+```bash
+cd python/finished/
+pip install -r requirements.txt
+cp .env.example .env
+# Add your GEMINI_API_KEY to .env
+python setup_store.py
+streamlit run app.py
 ```
 
 ## License

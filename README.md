@@ -18,21 +18,6 @@ The same technique works with **any** documentation. Swap in your own docs after
 | **Best For** | Learning RAG concepts deeply, rapid prototyping |
 | **Deploy** | `streamlit run app.py` (or Streamlit Cloud for free hosting) |
 
-## Workshop Slides
-
-The presentation slides for this workshop are available online:
-👉 **[View Slides](https://wei.github.io/mlh-gemini-rag-workshop/)**
-
-To run the slides locally:
-
-```bash
-# Install dependencies
-npm install
-
-# Start presentation
-npm run dev
-```
-
 ## Demo Corpus: MLH Resources
 
 The workshop uses these MLH docs as the knowledge base:

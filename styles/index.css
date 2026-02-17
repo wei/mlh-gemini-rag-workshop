@@ -1,0 +1,67 @@
+/* MLH Theme Styles */
+
+:root {
+  --mlh-red: #C0392B;
+  --mlh-orange: #CF6A25;
+  --mlh-dark-brown: #6B2714;
+  --mlh-navy: #1B2A4A;
+  --mlh-blue: #3B73B9;
+  --mlh-yellow: #E8B517;
+  --mlh-dark-yellow: #C4960C;
+  --mlh-text: #333333;
+  --slidev-theme-primary: var(--mlh-red);
+  --slidev-theme-accents: var(--mlh-blue);
+  --slidev-code-font-family: 'Fira Code', monospace;
+  --slidev-font-family: 'Work Sans', sans-serif;
+  --slidev-theme-font-header: 'Bebas Neue', 'Work Sans', sans-serif;
+}
+
+.slidev-layout {
+  background-color: white;
+  color: var(--mlh-text);
+}
+
+h1, h2, h3, h4, h5, h6 {
+  color: var(--mlh-navy);
+  font-family: var(--slidev-theme-font-header);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+a {
+  color: var(--mlh-blue);
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--mlh-orange);
+  text-decoration: underline;
+}
+
+code {
+  background-color: #f5f5f5;
+  color: var(--mlh-red);
+  padding: 0.2em 0.4em;
+  border-radius: 4px;
+}
+
+.slidev-code-block {
+  background-color: #f8f8f8 !important; /* Force light background for code blocks */
+  border: 1px solid #ddd;
+  border-radius: 8px;
+}
+
+/* Specific component overrides if needed */
+.mlh-btn {
+  background-color: var(--mlh-red);
+  color: white;
+  padding: 0.5em 1em;
+  border-radius: 4px;
+  font-weight: bold;
+  transition: background-color 0.2s;
+}
+
+.mlh-btn:hover {
+  background-color: var(--mlh-orange);
+}
